@@ -741,7 +741,7 @@ impl Http2Settings {
     }
 
     pub fn default_initial_connection_window_size() -> u32 {
-        8 * 1024 * 1024
+        15 * 1024 * 1024
     }
 
     pub fn default_initial_stream_window_size() -> u32 {

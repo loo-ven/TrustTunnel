@@ -129,7 +129,7 @@ rules_file = "rules.toml"
 upload_buffer_size = 32768
 
 [listen_protocols.http2]
-initial_connection_window_size = 8388608
+initial_connection_window_size = 15728640
 initial_stream_window_size = 131072
 max_concurrent_streams = 1000
 max_frame_size = 16384
@@ -281,7 +281,7 @@ Configure which protocols the endpoint accepts. At least one protocol must be en
 
 | Setting | Type | Default | Description |
 | ------- | ---- | ------- | ----------- |
-| `initial_connection_window_size` | Integer | `8388608` | Connection-level flow control window (8 MB) |
+| `initial_connection_window_size` | Integer | `15728640` | Connection-level flow control window (15 MB) |
 | `initial_stream_window_size` | Integer | `131072` | Stream-level flow control window (128 KB) |
 | `max_concurrent_streams` | Integer | `1000` | Maximum concurrent streams |
 | `max_frame_size` | Integer | `16384` | Maximum HTTP/2 frame payload size |
