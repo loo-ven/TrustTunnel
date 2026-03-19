@@ -2,6 +2,10 @@
 
 ## 1.0.17
 
+- [Feature] Add `catch_all_sni_host` key to `hosts.toml`: set it to the hostname of one of
+  the `[[reverse_proxy_hosts]]` entries to forward connections with an unrecognized SNI to
+  the reverse proxy channel instead of dropping them. Requires `[reverse_proxy]` to also be
+  configured. Accepts HTTP/1 and HTTP/3 only.
 - [Fix]     Reverse proxy routing for H2/H3.
 - [Feature] Add `ping_enable`, `ping_path`, `speedtest_enable` and `speedtest_path` config keys to configure ping and speedtest handlers.
 - [Feature] Add `auth_failure_status_code` config key to control the HTTP status code returned on authentication failure (407 or 405). Defaults to 407.

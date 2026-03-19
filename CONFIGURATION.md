@@ -195,6 +195,9 @@ hostname = "speed.vpn.example.com"
 cert_chain_path = "certs/cert.pem"
 private_key_path = "certs/key.pem"
 
+# Catch-all for unrecognized SNI: must be defined BEFORE any [[...]] array tables
+# catch_all_sni_host = "api.example.com"
+
 # Reverse proxy hosts (optional, requires reverse_proxy in main settings)
 # [[reverse_proxy_hosts]]
 # hostname = "api.example.com"
@@ -402,6 +405,9 @@ Each TLS host entry requires:
     - `GET /Nmb.bin` (N=1-100): Download N megabytes
     - `POST /upload.html`: Upload test (up to 120 MB)
 - **`reverse_proxy_hosts`** - Forward to reverse proxy server (requires `[reverse_proxy]`)
+- **`catch_all_sni_host`** - Hostname of one of the `reverse_proxy_hosts` entries to use as a
+  catch-all for connections with an unrecognized SNI. Requires `[reverse_proxy]` in main settings.
+  Accepts HTTP/1 and HTTP/3 only.
 
 ---
 

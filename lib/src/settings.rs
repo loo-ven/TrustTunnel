@@ -278,7 +278,11 @@ pub struct TlsHostsSettings {
     /// Only makes sense if the reverse proxy is set up, otherwise it is ignored.
     #[serde(default)]
     pub(crate) reverse_proxy_hosts: Vec<TlsHostInfo>,
-
+    /// Hostname of a `reverse_proxy_hosts` entry to use as a catch-all for unrecognized SNIs.
+    /// Routes to the reverse proxy channel. Requires `[reverse_proxy]` in main settings.
+    /// Accepts HTTP/1 and HTTP/3 only. Must match the `hostname` of one of `reverse_proxy_hosts`.
+    #[serde(default)]
+    pub(crate) catch_all_sni_host: Option<String>,
     /// Whether an instance was built through a [`TlsSettingsBuilder`].
     /// This flag is a workaround for absence of the ability to validate
     /// the deserialized structure.
@@ -714,6 +718,18 @@ impl TlsHostsSettings {
             .map_err(ValidationError::SpeedTlsHostInfo)?;
         Self::validate_tls_hosts(self.reverse_proxy_hosts.iter(), hosts)
             .map_err(ValidationError::ReverseProxy)?;
+        if let Some(ref hostname) = self.catch_all_sni_host {
+            let exists = self
+                .reverse_proxy_hosts
+                .iter()
+                .any(|h| &h.hostname == hostname);
+            if !exists {
+                return Err(ValidationError::ReverseProxy(format!(
+                    "catch_all_sni_host '{}' does not match any reverse_proxy_hosts hostname",
+                    hostname
+                )));
+            }
+        }
 
         Ok(())
     }
@@ -1082,6 +1098,7 @@ impl TlsSettingsBuilder {
                 ping_hosts: Default::default(),
                 speedtest_hosts: Default::default(),
                 reverse_proxy_hosts: Default::default(),
+                catch_all_sni_host: None,
                 built: true,
             },
         }
@@ -1126,6 +1143,14 @@ impl TlsSettingsBuilder {
     /// is set up, otherwise it is ignored.
     pub fn reverse_proxy_hosts(mut self, hosts: Vec<TlsHostInfo>) -> Self {
         self.settings.reverse_proxy_hosts = hosts;
+        self
+    }
+
+    /// Set the catch-all hostname for unrecognized SNI connections.
+    /// Must match the `hostname` of one of the `reverse_proxy_hosts` entries.
+    /// Requires `[reverse_proxy]` in main settings. Accepts HTTP/1 and HTTP/3 only.
+    pub fn catch_all_sni_host(mut self, hostname: impl Into<String>) -> Self {
+        self.settings.catch_all_sni_host = Some(hostname.into());
         self
     }
 }

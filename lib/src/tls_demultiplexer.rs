@@ -105,6 +105,7 @@ pub(crate) struct TlsDemux {
     speedtest_hosts: HashMap<String, Host>,
     tunnel_protocols: SmallVec<[Protocol; 3]>,
     allowed_sni_to_main_host: HashMap<String, String>,
+    default_fallback_host: Option<Host>,
 }
 
 impl Protocol {
@@ -220,6 +221,20 @@ impl TlsDemux {
             reverse_proxy_hosts: match settings.reverse_proxy {
                 None => Default::default(),
                 Some(_) => make_hosts!(tls_settings.reverse_proxy_hosts)?,
+            },
+            default_fallback_host: match settings.reverse_proxy {
+                None => None,
+                Some(_) => tls_settings
+                    .catch_all_sni_host
+                    .as_deref()
+                    .and_then(|name| {
+                        tls_settings
+                            .reverse_proxy_hosts
+                            .iter()
+                            .find(|h| h.hostname == name)
+                    })
+                    .map(|info| make_entry(info).map(|(_hostname, host)| host))
+                    .transpose()?,
             },
             tunnel_protocols: {
                 let mut x = SmallVec::new();
@@ -339,6 +354,24 @@ impl TlsDemux {
                 host,
                 None,
             )
+        } else if let Some(ref h) = self.default_fallback_host {
+            match parsed_alpn
+                .iter()
+                .filter(|x| matches!(x, Protocol::Http1 | Protocol::Http3))
+                .max()
+                .cloned()
+            {
+                Some(x) => (x, Channel::ReverseProxy, h, None),
+                None if alpn.clone().peekable().peek().is_none() => {
+                    (DEFAULT_PROTOCOL, Channel::ReverseProxy, h, None)
+                }
+                None => {
+                    return Err(format!(
+                        "Unexpected ALPN on fallback host connection {:?}",
+                        alpn.map(utils::hex_dump).collect::<Vec<_>>()
+                    ))
+                }
+            }
         } else {
             return Err(format!("Unexpected SNI {}", sni));
         };
@@ -767,5 +800,100 @@ mod tests {
         demux
             .select(advertised_alpn.clone(), "unknown.sni".to_string())
             .expect_err("Unknown SNI should fail");
+    }
+
+    #[test]
+    fn fallback_host_routes_unknown_sni() {
+        let mut settings = Settings::default();
+        settings.reverse_proxy = Some(dummy_reverse_proxy_settings());
+
+        let mut tls_settings = TlsHostsSettings::default();
+        tls_settings.main_hosts = vec![make_tls_host("tunnel".to_string())];
+        tls_settings.reverse_proxy_hosts = vec![make_tls_host("fallback".to_string())];
+        tls_settings.catch_all_sni_host = Some("fallback".to_string());
+
+        let demux = TlsDemux::new(&settings, &tls_settings).unwrap();
+        let meta = demux
+            .select(
+                [Protocol::Http1.as_alpn().as_bytes()].into_iter(),
+                "unknown.sni".to_string(),
+            )
+            .unwrap();
+        assert_eq!(meta.channel, Channel::ReverseProxy);
+    }
+
+    #[test]
+    fn fallback_host_not_active_without_reverse_proxy() {
+        let mut tls_settings = TlsHostsSettings::default();
+        tls_settings.main_hosts = vec![make_tls_host("tunnel".to_string())];
+        tls_settings.reverse_proxy_hosts = vec![make_tls_host("fallback".to_string())];
+        tls_settings.catch_all_sni_host = Some("fallback".to_string());
+
+        let demux = TlsDemux::new(&Settings::default(), &tls_settings).unwrap();
+        demux
+            .select(
+                [Protocol::Http1.as_alpn().as_bytes()].into_iter(),
+                "unknown.sni".to_string(),
+            )
+            .expect_err("Unknown SNI should fail when reverse_proxy is not configured");
+    }
+
+    #[test]
+    fn fallback_host_protocol_selection() {
+        let mut settings = Settings::default();
+        settings.reverse_proxy = Some(dummy_reverse_proxy_settings());
+
+        let mut tls_settings = TlsHostsSettings::default();
+        tls_settings.main_hosts = vec![make_tls_host("tunnel".to_string())];
+        tls_settings.reverse_proxy_hosts = vec![make_tls_host("fallback".to_string())];
+        tls_settings.catch_all_sni_host = Some("fallback".to_string());
+
+        let demux = TlsDemux::new(&settings, &tls_settings).unwrap();
+        let unknown = "unknown.sni".to_string();
+
+        let meta = demux
+            .select(
+                [Protocol::Http1.as_alpn().as_bytes()].into_iter(),
+                unknown.clone(),
+            )
+            .unwrap();
+        assert_eq!(meta.protocol, Protocol::Http1);
+        assert_eq!(meta.channel, Channel::ReverseProxy);
+
+        demux
+            .select(
+                [Protocol::Http2.as_alpn().as_bytes()].into_iter(),
+                unknown.clone(),
+            )
+            .unwrap_err();
+
+        let meta = demux
+            .select(
+                [Protocol::Http3.as_alpn().as_bytes()].into_iter(),
+                unknown.clone(),
+            )
+            .unwrap();
+        assert_eq!(meta.protocol, Protocol::Http3);
+        assert_eq!(meta.channel, Channel::ReverseProxy);
+    }
+
+    #[test]
+    fn fallback_host_does_not_override_known_sni() {
+        let mut settings = Settings::default();
+        settings.reverse_proxy = Some(dummy_reverse_proxy_settings());
+
+        let mut tls_settings = TlsHostsSettings::default();
+        tls_settings.main_hosts = vec![make_tls_host("tunnel".to_string())];
+        tls_settings.reverse_proxy_hosts = vec![make_tls_host("fallback".to_string())];
+        tls_settings.catch_all_sni_host = Some("fallback".to_string());
+
+        let demux = TlsDemux::new(&settings, &tls_settings).unwrap();
+        let meta = demux
+            .select(
+                [Protocol::Http1.as_alpn().as_bytes()].into_iter(),
+                "tunnel".to_string(),
+            )
+            .unwrap();
+        assert_eq!(meta.channel, Channel::Tunnel);
     }
 }
